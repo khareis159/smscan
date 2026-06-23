@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📸 App Modular com Google Lens & OCR</title>
+    <!-- Bibliotecas externas -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        /* Reset e base */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #f4f7fc;
+            color: #1e293b;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .app {
+            max-width: 1100px;
+            width: 100%;
+            background: white;
+            border-radius: 28px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+            padding: 24px 28px;
+            transition: all 0.2s;
+        }
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e9edf2;
+            padding-bottom: 14px;
+        }
+        h1 small {
+            font-size: 0.9rem;
+            font-weight: 400;
+            color: #64748b;
+            margin-left: auto;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 700px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+        .card {
+            background: #f8fafc;
+            border-radius: 18px;
+            padding: 18px 20px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 18px;
+        }
+        .card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            background: white;
+            color: #1e293b;
+            border: 1.5px solid #cbd5e1;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        .btn-primary { background: #2563eb; color: white; border-color: #2563eb; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-success { background: #16a34a; color: white; border-color: #16a34a; }
+        .btn-success:hover { background: #15803d; }
+        .btn-danger { background: #dc2626; color: white; border-color: #dc2626; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-outline { background: transparent; border: 1.5px solid #94a3b8; }
+        .btn-outline:hover { background: #f1f5f9; }
+        input[type="file"] { display: none; }
+        .preview-img {
+            max-width: 100%;
+            max-height: 260px;
+            border-radius: 12px;
+            margin: 10px 0;
+            border: 1px solid #e2e8f0;
+            object-fit: contain;
+            background: #f1f5f9;
+        }
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            resize: vertical;
+            background: white;
+            transition: 0.15s;
+        }
+        textarea:focus {
+            border-color: #2563eb;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
+        }
+        .badge {
+            background: #e9edf2;
+            padding: 4px 12px;
+            border-radius: 50px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #475569;
+        }
+        .history-item {
+            background: white;
+            padding: 10px 14px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .history-item .meta {
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+        .history-item .actions button {
+            background: none;
+            border: none;
+            color: #2563eb;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.8rem;
+            padding: 0 6px;
+        }
+        #status {
+            margin: 12px 0;
+            padding: 10px 16px;
+            border-radius: 12px;
+            background: #f1f5f9;
+            border-left: 4px solid #94a3b8;
+            font-weight: 500;
+            color: #1e293b;
+        }
+        #status.success { border-left-color: #16a34a; background: #f0fdf4; }
+        #status.error { border-left-color: #dc2626; background: #fef2f2; }
+        .flex-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        hr { border: none; border-top: 2px dashed #e2e8f0; margin: 20px 0; }
+        .footer {
+            margin-top: 30px;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            text-align: center;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 20px;
+        }
+        .plugin-tag {
+            display: inline-block;
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 2px 10px;
+            border-radius: 50px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-right: 4px;
+        }
+    </style>
+</head>
+<body>
+<div class="app" id="app">
+    <h1>
+        📸 App Modular · OCR & Export
+        <small>v1.0 · <span class="plugin-tag">Core</span><span class="plugin-tag">Lens</span><span class="plugin-tag">Export</span></small>
+    </h1>
+
+    <!-- Status -->
+    <div id="status">✅ Pronto para capturar imagem.</div>
+
+    <!-- Grid principal -->
+    <div class="grid-2">
+        <!-- Coluna 1: Captura e OCR -->
+        <div>
+            <div class="card">
+                <h3>📷 Captura</h3>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="Capture.abrirCamera()">📸 Câmera</button>
+                    <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">📁 Upload</button>
+                    <input type="file" id="fileInput" accept="image/*" onchange="Capture.uploadFile(event)">
+                </div>
+                <div id="previewArea" style="margin-top:10px; text-align:center;">
+                    <img id="previewImg" class="preview-img" style="display:none;" alt="Prévia">
+                </div>
+            </div>
+            <div class="card">
+                <h3>🔍 OCR (Tesseract.js)</h3>
+                <button class="btn btn-success" id="btnOcr" onclick="Capture.extrairTexto()">⚡ Extrair Texto</button>
+                <div style="margin-top:10px;">
+                    <textarea id="textoExtraido" placeholder="O texto extraído aparecerá aqui..."></textarea>
+                </div>
+            </div>
+            <div class="card">
+                <h3>📦 Conversão & Export</h3>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="Converter.paraJSON()">📄 JSON</button>
+                    <button class="btn btn-outline" onclick="Converter.paraTXT()">📃 TXT</button>
+                    <button class="btn btn-outline" onclick="Converter.paraPDF()">📕 PDF</button>
+                </div>
+                <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap;">
+                    <button class="btn btn-success" onclick="Export.downloadJSON()">⬇️ Baixar JSON</button>
+                    <button class="btn btn-success" onclick="Export.downloadTXT()">⬇️ Baixar TXT</button>
+                    <button class="btn btn-success" onclick="Export.downloadPDF()">⬇️ Baixar PDF</button>
+                </div>
+                <div style="margin-top:10px; font-size:0.85rem; color:#475569;">
+                    <span class="badge">bk_</span> arquivos salvos na pasta de download com prefixo <code>bk_</code>
+                </div>
+            </div>
+        </div>
+
+        <!-- Coluna 2: Armazenamento e Histórico -->
+        <div>
+            <div class="card">
+                <h3>💾 Armazenamento Local</h3>
+                <div class="btn-group">
+                    <button class="btn btn-outline" onclick="Storage.salvar()">💾 Salvar atual</button>
+                    <button class="btn btn-outline" onclick="Storage.carregar()">📂 Carregar último</button>
+                    <button class="btn btn-danger" onclick="Storage.limpar()">🗑️ Limpar</button>
+                </div>
+                <div id="storageStatus" style="margin-top:10px; font-size:0.85rem; color:#475569;"></div>
+            </div>
+            <div class="card">
+                <h3>📋 Histórico de capturas</h3>
+                <div id="historyList">
+                    <p style="color:#94a3b8; font-size:0.85rem;">Nenhum registro salvo ainda.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Módulo evolutivo (placeholder) -->
+    <div style="margin-top:20px; background:#f1f5f9; border-radius:18px; padding:16px 20px; border:1px dashed #94a3b8;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span style="font-weight:600;">🧩 Plugins ativos:</span>
+            <span class="plugin-tag">Core</span>
+            <span class="plugin-tag">Capture (Camera/Upload)</span>
+            <span class="plugin-tag">OCR (Tesseract)</span>
+            <span class="plugin-tag">Converter (JSON/TXT/PDF)</span>
+            <span class="plugin-tag">Storage (localStorage)</span>
+            <span class="plugin-tag">Export (bk_ prefix)</span>
+        </div>
+        <div style="font-size:0.85rem; color:#475569; margin-top:6px;">
+            🔮 Expansível: WebAssembly, IndexedDB, nuvem, IA embarcada, etc.
+        </div>
+    </div>
+
+    <div class="footer">
+        Arquitetura modular · Persistência local · Export para pasta <strong>bk</strong> · © khareis
+    </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  MÓDULO CORE – Gerencia estado e comunicação entre módulos
+// ═══════════════════════════════════════════════════════════════
+const Core = {
+    dados: {
+        imagem: null,      // dados da imagem (base64)
+        texto: '',         // texto extraído
+        formato: 'json',   // último formato usado
+        data: new Date().toISOString()
+    },
+    atualizarStatus(msg, tipo = 'info') {
+        const el = document.getElementById('status');
+        el.textContent = msg;
+        el.className = 'status ' + (tipo === 'success' ? 'success' : tipo === 'error' ? 'error' : '');
+    },
+    notificar(msg, tipo = 'info') {
+        this.atualizarStatus('🔔 ' + msg, tipo);
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  MÓDULO CAPTURE – Imagem e OCR
+// ═══════════════════════════════════════════════════════════════
+const Capture = {
+    imagemBase64: null,
+
+    abrirCamera() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            Core.notificar('Câmera não suportada neste navegador.', 'error');
+            return;
+        }
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.play();
+                // Cria um canvas para capturar o frame
+                const canvas = document.createElement('canvas');
+                canvas.width = 640;
+                canvas.height = 480;
+                const ctx = canvas.getContext('2d');
+                // Após 1 segundo, tira foto
+                setTimeout(() => {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    stream.getTracks().forEach(t => t.stop());
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    this._exibirImagem(dataUrl);
+                    Core.dados.imagem = dataUrl;
+                    Core.notificar('Imagem capturada pela câmera.', 'success');
+                }, 1000);
+            })
+            .catch(err => {
+                Core.notificar('Erro ao acessar câmera: ' + err.message, 'error');
+            });
+    },
+
+    uploadFile(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const dataUrl = e.target.result;
+            this._exibirImagem(dataUrl);
+            Core.dados.imagem = dataUrl;
+            Core.notificar('Imagem carregada: ' + file.name, 'success');
+        };
+        reader.readAsDataURL(file);
+    },
+
+    _exibirImagem(dataUrl) {
+        const img = document.getElementById('previewImg');
+        img.src = dataUrl;
+        img.style.display = 'block';
+        this.imagemBase64 = dataUrl;
+    },
+
+    extrairTexto() {
+        const img = document.getElementById('previewImg');
+        if (!img.src || img.style.display === 'none') {
+            Core.notificar('Carregue uma imagem primeiro.', 'error');
+            return;
+        }
+        Core.notificar('Processando OCR...', 'info');
+        // Usa Tesseract.js para reconhecimento
+        Tesseract.recognize(
+            img.src,
+            'por',
+            { logger: m => console.log(m) }
+        ).then(({ data: { text } }) => {
+            const texto = text.trim() || 'Nenhum texto encontrado.';
+            document.getElementById('textoExtraido').value = texto;
+            Core.dados.texto = texto;
+            Core.notificar('OCR concluído!', 'success');
+            // Salva automaticamente no storage
+            Storage.salvar();
+        }).catch(err => {
+            Core.notificar('Erro no OCR: ' + err.message, 'error');
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  MÓDULO CONVERTER – Gera dados em diferentes formatos
+// ═══════════════════════════════════════════════════════════════
+const Converter = {
+    _obterDados() {
+        const texto = document.getElementById('textoExtraido').value || Core.dados.texto || '';
+        const img = Core.dados.imagem || '';
+        return {
+            texto,
+            imagem: img,
+            data: new Date().toISOString(),
+            formato: 'json'
+        };
+    },
+
+    paraJSON() {
+        const dados = this._obterDados();
+        const json = JSON.stringify(dados, null, 2);
+        Core.dados.texto = json; // guarda como string para exportação
+        Core.dados.formato = 'json';
+        document.getElementById('textoExtraido').value = json;
+        Core.notificar('Convertido para JSON.', 'success');
+        return json;
+    },
+
+    paraTXT() {
+        const dados = this._obterDados();
+        const txt = `📄 Dados extraídos\nData: ${dados.data}\n\n${dados.texto}`;
+        Core.dados.texto = txt;
+        Core.dados.formato = 'txt';
+        document.getElementById('textoExtraido').value = txt;
+        Core.notificar('Convertido para TXT.', 'success');
+        return txt;
+    },
+
+    paraPDF() {
+        const dados = this._obterDados();
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.setFontSize(14);
+        doc.text('📄 Relatório OCR', 20, 30);
+        doc.setFontSize(11);
+        const lines = doc.splitTextToSize(dados.texto || 'Nenhum texto', 170);
+        doc.text(lines, 20, 50);
+        doc.setFontSize(8);
+        doc.text(`Gerado em: ${dados.data}`, 20, 280);
+        const pdfBlob = doc.output('blob');
+        Core.dados.texto = pdfBlob; // guardamos o blob para download
+        Core.dados.formato = 'pdf';
+        Core.notificar('PDF gerado.', 'success');
+        return pdfBlob;
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  MÓDULO STORAGE – localStorage persistente
+// ═══════════════════════════════════════════════════════════════
+const Storage = {
+    chave: 'app_ocr_data',
+
+    salvar() {
+        const dados = {
+            texto: document.getElementById('textoExtraido').value || Core.dados.texto,
+            imagem: Core.dados.imagem || '',
+            data: new Date().toISOString()
+        };
+        try {
+            localStorage.setItem(this.chave, JSON.stringify(dados));
+            Core.notificar('Dados salvos no localStorage.', 'success');
+            this._atualizarStatus('✅ Salvo em: ' + dados.data);
+            this._atualizarHistorico();
+        } catch (e) {
+            Core.notificar('Erro ao salvar: ' + e.message, 'error');
+        }
+    },
+
+    carregar() {
+        try {
+            const raw = localStorage.getItem(this.chave);
+            if (!raw) {
+                Core.notificar('Nenhum dado salvo.', 'error');
+                return;
+            }
+            const dados = JSON.parse(raw);
+            document.getElementById('textoExtraido').value = dados.texto || '';
+            Core.dados.texto = dados.texto || '';
+            if (dados.imagem) {
+                const img = document.getElementById('previewImg');
+                img.src = dados.imagem;
+                img.style.display = 'block';
+                Core.dados.imagem = dados.imagem;
+            }
+            Core.notificar('Dados carregados do localStorage.', 'success');
+            this._atualizarStatus('📂 Carregado de: ' + dados.data);
+        } catch (e) {
+            Core.notificar('Erro ao carregar: ' + e.message, 'error');
+        }
+    },
+
+    limpar() {
+        if (confirm('Tem certeza que deseja limpar todos os dados?')) {
+            localStorage.removeItem(this.chave);
+            Core.notificar('Dados removidos.', 'info');
+            this._atualizarStatus('🗑️ Nenhum dado salvo.');
+            document.getElementById('textoExtraido').value = '';
+            document.getElementById('previewImg').style.display = 'none';
+            this._atualizarHistorico();
+        }
+    },
+
+    _atualizarStatus(msg) {
+        document.getElementById('storageStatus').textContent = msg;
+    },
+
+    // Histórico: exibe todos os registros salvos (apenas o último para simplificar, mas podemos listar múltiplos)
+    _atualizarHistorico() {
+        const list = document.getElementById('historyList');
+        try {
+            const raw = localStorage.getItem(this.chave);
+            if (!raw) {
+                list.innerHTML = '<p style="color:#94a3b8; font-size:0.85rem;">Nenhum registro salvo ainda.</p>';
+                return;
+            }
+            const dados = JSON.parse(raw);
+            const dataFormatada = new Date(dados.data).toLocaleString('pt-BR');
+            const preview = dados.texto ? dados.texto.slice(0, 80) + (dados.texto.length > 80 ? '…' : '') : '(vazio)';
+            list.innerHTML = `
+                <div class="history-item">
+                    <div>
+                        <strong>📌 ${dataFormatada}</strong>
+                        <div class="meta">${preview}</div>
+                    </div>
+                    <div class="actions">
+                        <button onclick="Storage.carregar()">📂 Carregar</button>
+                        <button onclick="Storage.limpar()">🗑️</button>
+                    </div>
+                </div>
+            `;
+        } catch (e) {
+            list.innerHTML = '<p style="color:#94a3b8;">Erro ao carregar histórico.</p>';
+        }
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  MÓDULO EXPORT – Download de arquivos com prefixo "bk_"
+// ═══════════════════════════════════════════════════════════════
+const Export = {
+    _baixar(blob, nomeArquivo) {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `bk_${nomeArquivo}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+        Core.notificar(`📥 ${nomeArquivo} baixado.`, 'success');
+    },
+
+    downloadJSON() {
+        const json = Converter.paraJSON();
+        const blob = new Blob([json], { type: 'application/json' });
+        this._baixar(blob, `dados_${Date.now()}.json`);
+    },
+
+    downloadTXT() {
+        const txt = Converter.paraTXT();
+        const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+        this._baixar(blob, `dados_${Date.now()}.txt`);
+    },
+
+    downloadPDF() {
+        const pdfBlob = Converter.paraPDF();
+        if (pdfBlob instanceof Blob) {
+            this._baixar(pdfBlob, `dados_${Date.now()}.pdf`);
+        } else {
+            Core.notificar('Gere o PDF primeiro.', 'error');
+        }
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  INICIALIZAÇÃO – Carrega histórico e exibe status
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+    Storage._atualizarHistorico();
+    Core.notificar('Aplicação pronta!', 'info');
+
+    // Plugin de exemplo: simular integração com Google Lens (apenas link)
+    // Na prática, você poderia abrir o app Google Lens com um intent
+    console.log('🔮 Módulo Lens integrado (simulação)');
+});
+</script>
+    © Carlos Alberto Reis 2026 · ZAP e Apoio/CHAVE PIX 61999487649 · 
+    <a href="https://wa.me/5561999487649" style="color:#25d366;text-decoration:none;">WhatsApp</a>
+</footer>
+</body>
+</html>
