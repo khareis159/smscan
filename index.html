@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📸 App Modular com Google Lens & OCR</title>
+    <title>📸 App Modular · OCR & Export</title>
     <!-- Bibliotecas externas -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -39,6 +39,7 @@
             margin-bottom: 20px;
             border-bottom: 2px solid #e9edf2;
             padding-bottom: 14px;
+            flex-wrap: wrap;
         }
         h1 small {
             font-size: 0.9rem;
@@ -77,7 +78,6 @@
         }
         .btn {
             padding: 10px 20px;
-            border: none;
             border-radius: 50px;
             font-weight: 600;
             font-size: 0.9rem;
@@ -198,13 +198,19 @@
             font-weight: 600;
             margin-right: 4px;
         }
+        .plugin-tag.soon {
+            background: #f1f5f9;
+            color: #64748b;
+        }
     </style>
 </head>
 <body>
 <div class="app" id="app">
     <h1>
         📸 App Modular · OCR & Export
-        <small>v1.0 · <span class="plugin-tag">Core</span><span class="plugin-tag">Lens</span><span class="plugin-tag">Export</span></small>
+        <small>v1.1 ·
+            <span class="plugin-tag">Core</span><span class="plugin-tag">Capture</span><span class="plugin-tag">OCR</span><span class="plugin-tag">Converter</span><span class="plugin-tag">Storage</span><span class="plugin-tag">Export</span><span class="plugin-tag">History</span><span class="plugin-tag soon" title="Ainda não implementado">Lens (em breve)</span>
+        </small>
     </h1>
 
     <!-- Status -->
@@ -257,7 +263,7 @@
                 <div class="btn-group">
                     <button class="btn btn-outline" onclick="Storage.salvar()">💾 Salvar atual</button>
                     <button class="btn btn-outline" onclick="Storage.carregar()">📂 Carregar último</button>
-                    <button class="btn btn-danger" onclick="Storage.limpar()">🗑️ Limpar</button>
+                    <button class="btn btn-danger" onclick="Storage.limpar()">🗑️ Limpar tudo</button>
                 </div>
                 <div id="storageStatus" style="margin-top:10px; font-size:0.85rem; color:#475569;"></div>
             </div>
@@ -280,6 +286,8 @@
             <span class="plugin-tag">Converter (JSON/TXT/PDF)</span>
             <span class="plugin-tag">Storage (localStorage)</span>
             <span class="plugin-tag">Export (bk_ prefix)</span>
+            <span class="plugin-tag">History (múltiplos registros)</span>
+            <span class="plugin-tag soon">Lens (planejado, não implementado)</span>
         </div>
         <div style="font-size:0.85rem; color:#475569; margin-top:6px;">
             🔮 Expansível: WebAssembly, IndexedDB, nuvem, IA embarcada, etc.
@@ -299,6 +307,7 @@ const Core = {
     dados: {
         imagem: null,      // dados da imagem (base64)
         texto: '',         // texto extraído
+        pdfBlob: null,     // último PDF gerado (Blob) — NÃO sobrescreve "texto"
         formato: 'json',   // último formato usado
         data: new Date().toISOString()
     },
@@ -309,6 +318,13 @@ const Core = {
     },
     notificar(msg, tipo = 'info') {
         this.atualizarStatus('🔔 ' + msg, tipo);
+    },
+    // Escapa HTML antes de injetar texto extraído (OCR) em innerHTML,
+    // evitando que tags presentes no texto reconhecido quebrem o layout.
+    escapeHTML(str) {
+        const div = document.createElement('div');
+        div.textContent = str == null ? '' : String(str);
+        return div.innerHTML;
     }
 };
 
@@ -323,25 +339,35 @@ const Capture = {
             Core.notificar('Câmera não suportada neste navegador.', 'error');
             return;
         }
-        navigator.mediaDevices.getUserMedia({ video: true })
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
             .then(stream => {
                 const video = document.createElement('video');
                 video.srcObject = stream;
-                video.play();
-                // Cria um canvas para capturar o frame
-                const canvas = document.createElement('canvas');
-                canvas.width = 640;
-                canvas.height = 480;
-                const ctx = canvas.getContext('2d');
-                // Após 1 segundo, tira foto
-                setTimeout(() => {
+                video.playsInline = true; // evita fullscreen automático no iOS
+                video.muted = true;       // evita bloqueio de autoplay
+                video.play().catch(() => {});
+
+                const capturarFrame = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = video.videoWidth || 640;
+                    canvas.height = video.videoHeight || 480;
+                    const ctx = canvas.getContext('2d');
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     stream.getTracks().forEach(t => t.stop());
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
                     this._exibirImagem(dataUrl);
                     Core.dados.imagem = dataUrl;
                     Core.notificar('Imagem capturada pela câmera.', 'success');
-                }, 1000);
+                };
+
+                // Antes: setTimeout fixo de 1s, podendo capturar frame preto
+                // se a câmera ainda não tivesse entregue o primeiro frame.
+                // Agora: espera o vídeo ter dados reais antes de fotografar.
+                if (video.readyState >= 2) {
+                    setTimeout(capturarFrame, 400);
+                } else {
+                    video.onloadeddata = () => setTimeout(capturarFrame, 400);
+                }
             })
             .catch(err => {
                 Core.notificar('Erro ao acessar câmera: ' + err.message, 'error');
@@ -385,7 +411,7 @@ const Capture = {
             document.getElementById('textoExtraido').value = texto;
             Core.dados.texto = texto;
             Core.notificar('OCR concluído!', 'success');
-            // Salva automaticamente no storage
+            // Salva automaticamente no histórico
             Storage.salvar();
         }).catch(err => {
             Core.notificar('Erro no OCR: ' + err.message, 'error');
@@ -440,7 +466,10 @@ const Converter = {
         doc.setFontSize(8);
         doc.text(`Gerado em: ${dados.data}`, 20, 280);
         const pdfBlob = doc.output('blob');
-        Core.dados.texto = pdfBlob; // guardamos o blob para download
+        // Antes: o Blob era gravado em Core.dados.texto, contaminando o
+        // estado de texto usado por Storage/JSON/TXT (JSON.stringify(Blob)
+        // vira "{}"). Agora o PDF fica isolado em Core.dados.pdfBlob.
+        Core.dados.pdfBlob = pdfBlob;
         Core.dados.formato = 'pdf';
         Core.notificar('PDF gerado.', 'success');
         return pdfBlob;
@@ -448,54 +477,92 @@ const Converter = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-//  MÓDULO STORAGE – localStorage persistente
+//  MÓDULO STORAGE – localStorage persistente com histórico real
+//  (mantém múltiplos registros, não apenas o último)
 // ═══════════════════════════════════════════════════════════════
 const Storage = {
-    chave: 'app_ocr_data',
+    chave: 'app_ocr_history',
+    maxRegistros: 15,
+
+    _lerTodos() {
+        try {
+            const raw = localStorage.getItem(this.chave);
+            const lista = raw ? JSON.parse(raw) : [];
+            return Array.isArray(lista) ? lista : [];
+        } catch (e) {
+            return [];
+        }
+    },
+
+    _gravarTodos(lista) {
+        localStorage.setItem(this.chave, JSON.stringify(lista));
+    },
 
     salvar() {
-        const dados = {
-            texto: document.getElementById('textoExtraido').value || Core.dados.texto,
+        const registro = {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+            texto: document.getElementById('textoExtraido').value || Core.dados.texto || '',
             imagem: Core.dados.imagem || '',
             data: new Date().toISOString()
         };
         try {
-            localStorage.setItem(this.chave, JSON.stringify(dados));
-            Core.notificar('Dados salvos no localStorage.', 'success');
-            this._atualizarStatus('✅ Salvo em: ' + dados.data);
+            const lista = this._lerTodos();
+            lista.unshift(registro);
+            while (lista.length > this.maxRegistros) lista.pop();
+            this._gravarTodos(lista);
+            Core.notificar('Dados salvos no histórico.', 'success');
+            this._atualizarStatus('✅ Salvo em: ' + registro.data);
             this._atualizarHistorico();
         } catch (e) {
-            Core.notificar('Erro ao salvar: ' + e.message, 'error');
+            // Antes: erro genérico. Imagens em base64 podem facilmente
+            // ultrapassar a cota do localStorage (~5MB) e isso não era
+            // sinalizado de forma específica ao usuário.
+            if (e.name === 'QuotaExceededError') {
+                Core.notificar('Armazenamento local cheio. Use uma imagem menor ou limpe o histórico.', 'error');
+            } else {
+                Core.notificar('Erro ao salvar: ' + e.message, 'error');
+            }
         }
     },
 
-    carregar() {
-        try {
-            const raw = localStorage.getItem(this.chave);
-            if (!raw) {
-                Core.notificar('Nenhum dado salvo.', 'error');
-                return;
-            }
-            const dados = JSON.parse(raw);
-            document.getElementById('textoExtraido').value = dados.texto || '';
-            Core.dados.texto = dados.texto || '';
-            if (dados.imagem) {
-                const img = document.getElementById('previewImg');
-                img.src = dados.imagem;
-                img.style.display = 'block';
-                Core.dados.imagem = dados.imagem;
-            }
-            Core.notificar('Dados carregados do localStorage.', 'success');
-            this._atualizarStatus('📂 Carregado de: ' + dados.data);
-        } catch (e) {
-            Core.notificar('Erro ao carregar: ' + e.message, 'error');
+    carregar(id) {
+        const lista = this._lerTodos();
+        if (!lista.length) {
+            Core.notificar('Nenhum dado salvo.', 'error');
+            return;
         }
+        const registro = id ? lista.find(r => r.id === id) : lista[0];
+        if (!registro) {
+            Core.notificar('Registro não encontrado.', 'error');
+            return;
+        }
+        document.getElementById('textoExtraido').value = registro.texto || '';
+        Core.dados.texto = registro.texto || '';
+        const img = document.getElementById('previewImg');
+        if (registro.imagem) {
+            img.src = registro.imagem;
+            img.style.display = 'block';
+            Core.dados.imagem = registro.imagem;
+        } else {
+            img.src = '';
+            img.style.display = 'none';
+            Core.dados.imagem = null;
+        }
+        Core.notificar('Dados carregados do histórico.', 'success');
+        this._atualizarStatus('📂 Carregado de: ' + registro.data);
+    },
+
+    remover(id) {
+        const lista = this._lerTodos().filter(r => r.id !== id);
+        this._gravarTodos(lista);
+        Core.notificar('Registro removido.', 'info');
+        this._atualizarHistorico();
     },
 
     limpar() {
-        if (confirm('Tem certeza que deseja limpar todos os dados?')) {
+        if (confirm('Tem certeza que deseja limpar todo o histórico?')) {
             localStorage.removeItem(this.chave);
-            Core.notificar('Dados removidos.', 'info');
+            Core.notificar('Histórico removido.', 'info');
             this._atualizarStatus('🗑️ Nenhum dado salvo.');
             document.getElementById('textoExtraido').value = '';
             document.getElementById('previewImg').style.display = 'none';
@@ -507,33 +574,33 @@ const Storage = {
         document.getElementById('storageStatus').textContent = msg;
     },
 
-    // Histórico: exibe todos os registros salvos (apenas o último para simplificar, mas podemos listar múltiplos)
+    // Antes: exibia sempre apenas o último registro, embora o rótulo da UI
+    // dissesse "Histórico de capturas" (plural). Agora renderiza todos os
+    // registros salvos (até maxRegistros), cada um com ações próprias.
     _atualizarHistorico() {
         const list = document.getElementById('historyList');
-        try {
-            const raw = localStorage.getItem(this.chave);
-            if (!raw) {
-                list.innerHTML = '<p style="color:#94a3b8; font-size:0.85rem;">Nenhum registro salvo ainda.</p>';
-                return;
-            }
-            const dados = JSON.parse(raw);
-            const dataFormatada = new Date(dados.data).toLocaleString('pt-BR');
-            const preview = dados.texto ? dados.texto.slice(0, 80) + (dados.texto.length > 80 ? '…' : '') : '(vazio)';
-            list.innerHTML = `
+        const lista = this._lerTodos();
+        if (!lista.length) {
+            list.innerHTML = '<p style="color:#94a3b8; font-size:0.85rem;">Nenhum registro salvo ainda.</p>';
+            return;
+        }
+        list.innerHTML = lista.map(reg => {
+            const dataFormatada = new Date(reg.data).toLocaleString('pt-BR');
+            const textoBruto = reg.texto ? reg.texto.slice(0, 80) + (reg.texto.length > 80 ? '…' : '') : '(vazio)';
+            const preview = Core.escapeHTML(textoBruto);
+            return `
                 <div class="history-item">
                     <div>
                         <strong>📌 ${dataFormatada}</strong>
                         <div class="meta">${preview}</div>
                     </div>
                     <div class="actions">
-                        <button onclick="Storage.carregar()">📂 Carregar</button>
-                        <button onclick="Storage.limpar()">🗑️</button>
+                        <button onclick="Storage.carregar('${reg.id}')">📂 Carregar</button>
+                        <button onclick="Storage.remover('${reg.id}')">🗑️</button>
                     </div>
                 </div>
             `;
-        } catch (e) {
-            list.innerHTML = '<p style="color:#94a3b8;">Erro ao carregar histórico.</p>';
-        }
+        }).join('');
     }
 };
 
@@ -565,7 +632,10 @@ const Export = {
     },
 
     downloadPDF() {
-        const pdfBlob = Converter.paraPDF();
+        // Antes: lia o PDF de Core.dados.texto (poluído pelo Converter).
+        // Agora lê do campo dedicado Core.dados.pdfBlob.
+        Converter.paraPDF();
+        const pdfBlob = Core.dados.pdfBlob;
         if (pdfBlob instanceof Blob) {
             this._baixar(pdfBlob, `dados_${Date.now()}.pdf`);
         } else {
@@ -581,12 +651,14 @@ document.addEventListener('DOMContentLoaded', () => {
     Storage._atualizarHistorico();
     Core.notificar('Aplicação pronta!', 'info');
 
-    // Plugin de exemplo: simular integração com Google Lens (apenas link)
-    // Na prática, você poderia abrir o app Google Lens com um intent
-    console.log('🔮 Módulo Lens integrado (simulação)');
+    // Lens ainda não está implementado de fato — ver badge "Lens (em breve)"
+    // no cabeçalho. Mantido aqui apenas como marcador de roadmap.
+    console.log('🔮 Módulo Lens: planejado, ainda não implementado.');
 });
 </script>
-    © Carlos Alberto Reis 2026 · ZAP e Apoio/CHAVE PIX 61999487649 · 
+
+<footer style="margin-top:16px; font-size:0.8rem; color:#94a3b8; text-align:center;">
+    © Carlos Alberto Reis 2026 · ZAP e Apoio/CHAVE PIX 61999487649 ·
     <a href="https://wa.me/5561999487649" style="color:#25d366;text-decoration:none;">WhatsApp</a>
 </footer>
 </body>
